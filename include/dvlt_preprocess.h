@@ -96,7 +96,7 @@ struct Frame { std::vector<float> rgb; int H, W; };   // rgb is [H,W,3] interlea
 // ---- EXIF orientation (ported from vggttt-win, 2026-08-15) --------------------------
 // stb_image ignores EXIF, so phone photos arrive as the sensor stored them -- often
 // sideways. A batch mixing gravity directions shatters the reconstruction (measured on
-// the Sputnik set: 88x rot90CW + 9x rot90CCW + 9x rot180 + 33x upright -> fragment soup).
+// one real set: 88x rot90CW + 9x rot90CCW + 9x rot180 + 33x upright -> fragment soup).
 // Minimal JPEG APP1/TIFF walk for tag 0x0112; returns 1 (upright) on anything unexpected.
 inline int exif_orientation(const char* path) {
     FILE* f = fopen(path, "rb");

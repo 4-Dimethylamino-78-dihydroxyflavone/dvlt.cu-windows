@@ -99,7 +99,7 @@ run unless `--keep-prep` is given (the COLMAP export already holds the corrected
 - `--sky` (vsky): a sky segmenter (SegFormer ADE20K ONNX, ceiling-aware; CUDA else CPU) masks every frame, dvlt runs on
   copies with the sky painted pure black, and every exactly-black point is then stripped from
   `scene.ply` (original kept as `scene_withsky.ply`). The black key carries per-pixel provenance
-  through the PLY's colour, so removal is exact rather than voted. On the 60-frame dorm set:
+  through the PLY's colour, so removal is exact rather than voted. On a 60-frame outdoor set:
   sky-blue points 21.5% → 3.1%, 0.18% of ground points lost.
 - `--ppisp` (vppisp): Program AE and auto white balance re-expose every frame (3.5 EV across the
   same set). A first dvlt pass supplies multi-view correspondences, NVIDIA's PPISP camera model

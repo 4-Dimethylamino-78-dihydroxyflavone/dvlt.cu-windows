@@ -76,7 +76,7 @@ if "%~1"=="" (
     echo   reconstruct.bat C:\Photos\scene                    -^> C:\Photos\scene_out_dvlt
     echo   reconstruct.bat C:\Photos\scene 0.3 12             -^> same folder, conf 0.3, K 12
     echo   reconstruct.bat C:\Photos\scene\vfold-60.txt 0.3   -^> C:\Photos\scene_vfold-60_out_dvlt
-    echo   reconstruct.bat inputs\bhrami output\bhrami_result 0.2
+    echo   reconstruct.bat inputs\shoe output\shoe_result 0.2
     echo   reconstruct.bat C:\Photos\scene output\scene 0.1 12
     echo   reconstruct.bat C:\Photos\scene\vfold-60.txt output\scene-60
     echo   reconstruct.bat C:\Photos\scene\vfold-60.txt output\scene-60 -f all

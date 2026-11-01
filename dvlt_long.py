@@ -205,13 +205,13 @@ def _sim3_discrepancy(a, b):
 def frame_consensus_sim3(blocks, tol=0.05, delta=0.1, max_iters=5, tol_conv=1e-9):
     """Two-level robust alignment: consensus ACROSS frames, then IRLS across pixels.
 
-    [MEASURED 2026-07-19, Dorm-723] Pixel-pooled IRLS is robust across pixels but blind
+    [MEASURED on a 723-frame indoor set] Pixel-pooled IRLS is robust across pixels but blind
     across frames: a shared frame whose geometry is systematically displaced contributes
     many mutually-consistent pixels, so a pixel-level Huber loss reads it as inlier. Worse,
     Umeyama's scale is a ratio of RMS spreads, so pooling frames that disagree about
     relative PLACEMENT inflates the target spread - the joint fit can land outside the range
     of every individual frame's solution (measured: per-frame s in {0.604..0.775}, pooled fit
-    0.853). Fixing this cut the median per-frame residual on Dorm's worst edges by ~10x and
+    0.853). Fixing this cut the median per-frame residual on that set's worst edges by ~10x and
     left already-good edges untouched.
 
     This is TEASER's consensus idea (arXiv 2001.07715) applied at the granularity where our
@@ -237,7 +237,7 @@ def frame_consensus_sim3(blocks, tol=0.05, delta=0.1, max_iters=5, tol_conv=1e-9
         # signature of genuinely split geometry: two self-consistent populations, neither of
         # which is noise. Averaging them yields a physically meaningless compromise, so the
         # caller must be able to see it (edge state AMBIGUOUS/NONRIGID) rather than get a
-        # confident-looking number. [MEASURED: Dorm hub 0<-13, s in {0.60,0.62,0.61} vs
+        # confident-looking number. [MEASURED: hub 0<-13, s in {0.60,0.62,0.61} vs
         # {0.78,0.76}; the pooled fit returned 0.853 - outside BOTH populations.]
         ks = set(keep)
         rival = max((len([j for j in v if j not in ks]) for v in votes), default=0)
@@ -554,7 +554,7 @@ def skeleton_rows_clustered(Z, n_total, group=4):
     a context of maximally-unrelated views, so the skeleton's own internal geometry is
     unreliable exactly where the hub then anchors everything to it.
 
-    [MEASURED 2026-07-19, Dorm-723] FPS skeleton hub edges split into two self-consistent
+    [MEASURED on a 723-frame indoor set] FPS skeleton hub edges split into two self-consistent
     scale populations (0.60-0.62 vs 0.76-0.78) while rim seams between overlapping windows
     agreed to 0.5%. The skeleton, not the estimator, carried the inconsistency.
 
@@ -912,7 +912,7 @@ def edge_ghosts(edge_list, S_by_idx):
     cached correspondence sample and measure how far apart the same physical pixels land,
     as a fraction of scene extent (p95 radius over all samples in world coords).
 
-    [MEASURED 2026-07-19, Dorm-723] Every other gate runs in chunk-local coordinates BEFORE
+    [MEASURED on a 723-frame indoor set] Every other gate runs in chunk-local coordinates BEFORE
     the graph moves anything: edges passed the residual gate and still placed the same
     pixel 2.28 scene-widths apart after optimization (rim 8<-9, ghost 228% of extent). An
     edge can be locally excellent and globally catastrophic; this is the only metric in
@@ -961,7 +961,7 @@ def _init_from_edges(n_chunks, edges):
 
     Chain, hub and wheel all initialize through this one path, but the *shape* of the
     graph decides how much composition happens: a chain composes k relatives to reach
-    chunk k (one bad seam multiplies into every later chunk — the measured 29x Dorm
+    chunk k (one bad seam multiplies into every later chunk — the measured 29x
     cascade), while a hub reaches every chunk in one hop, so a bad edge corrupts exactly
     one node before the optimizer has even run. That is the containment claim of
     addendum §4.4, and it lives here, not in the solver.
@@ -1279,7 +1279,7 @@ def main():
     ap.add_argument('--topology', choices=['hub', 'chain', 'auto'], default=None)
     ap.add_argument('--order', choices=['serial', 'unordered', 'auto'], default=None)
     # dedup defaults OFF pending a spec decision: the transferred 0.95 was REFUTED by the
-    # §8.6 calibration on Dorm-723. In power-normalized space our
+    # §8.6 calibration on a 723-frame indoor set. In power-normalized space our
     # far pairs average 0.789 (p95 0.903) against adjacent 0.982 - only 0.193 of separation -
     # so every threshold in 0.90..0.99 saturates the min-keep clamp at exactly 50% dropped.
     # The clamp, not the threshold, was selecting. 0.999 is the measured-conservative point
@@ -1293,7 +1293,7 @@ def main():
                     help="'clustered' (default): FPS anchors filled out with their nearest "
                          "neighbours, so skeleton frames have co-visible partners to "
                          "triangulate against. 'fps': v1.5 pure farthest-point (coverage "
-                         "only) - measurably produces split-scale hub edges on Dorm-723.")
+                         "only) - measurably produces split-scale hub edges on a 723-frame indoor set.")
     ap.add_argument('--skeleton-group', type=int, default=4)
     ap.add_argument('--skeleton-k', type=int, default=16)        # skeleton always K=16 (§4.2)
     ap.add_argument('--bridges', type=int, default=3)
@@ -1306,7 +1306,7 @@ def main():
     ap.add_argument('--ghost-max', type=float, default=0.15,
                     help='post-graph validation: reject edges whose shared pixels land more '
                          'than this fraction of scene extent apart AFTER optimization, then '
-                         're-solve (measured Dorm-723: healthy edges ghost 1-3%%, broken '
+                         're-solve (measured on a 723-frame indoor set: healthy edges ghost 1-3%%, broken '
                          'ones 30-228%% and they still passed the pre-graph gates). '
                          '<=0 disables')
     # Intermediates are ~170 MB per chunk (a 24-chunk run is ~4 GB). RETAINED BY DEFAULT
@@ -1336,7 +1336,7 @@ def main():
     topology = cfg.topology
     if topology == 'auto':
         # Hub only where it is REQUIRED (unordered input has no chain to fall back on).
-        # The wheel LOST its serial A/B on Dorm-723 (chain 2.30x vs wheel 3.46x scale
+        # The wheel LOST its serial A/B on a 723-frame indoor set (chain 2.30x vs wheel 3.46x scale
         # spread), so serial corpora default to chain until a
         # §10 decision revives it. Explicit --topology hub remains available for A/Bs.
         topology = 'hub' if (order == 'unordered' and len(images) > cfg.chunk_size) else 'chain'
@@ -2225,9 +2225,9 @@ def test_irls_budget_exhaustion_is_usable():
     assert abs(est[0] - gt[0]) / gt[0] < 0.02
 
 def test_enu():
-    lla = np.array([[151.0, -34.0, 10.0], [151.001, -34.0, 10.0]])[:, [1, 0, 2]]  # lat,lon,alt
+    lla = np.array([[-118.0, 34.0, 10.0], [-117.999, 34.0, 10.0]])[:, [1, 0, 2]]  # lat,lon,alt
     enu = gps_to_enu(lla)
-    assert 80 < abs(enu[1, 0] - enu[0, 0]) < 105   # ~92 m per 0.001° lon at 34°S
+    assert 80 < abs(enu[1, 0] - enu[0, 0]) < 105   # ~92 m per 0.001° lon at 34°N
 
 def test_pose_graph_recovers_drift():
     rng = np.random.default_rng(8)
@@ -2319,7 +2319,7 @@ def test_pose_graph_rejects_bad_edge_scale():
 # ─── v1.5 self tests (addendum §8) ───────────────────────────────────────────
 def test_hub_init_contains_bad_edge():
     """§8.1 star-vs-chain containment. One corrupted edge: chain init multiplies it into
-    every downstream chunk (the measured 29x Dorm cascade); hub init reaches every chunk
+    every downstream chunk (the measured 29x cascade); hub init reaches every chunk
     in one hop, so exactly one node is wrong. This is the whole argument for v1.5."""
     rng = np.random.default_rng(20)
     K, BAD = 8, 3
@@ -2405,7 +2405,7 @@ def test_dedup_synthetic():
 
 def test_dedup_min_keep_clamp():
     """§8.4 the min-keep guard bounds the damage when a corpus aliases hard (repetitive
-    industrial structure: Tahmoor conveyor galleries)."""
+    industrial structure)."""
     rng = np.random.default_rng(23)
     raw = np.tile(rng.normal(0, 1, (1, 768)), (10, 1)).astype(np.float32)
     raw += rng.normal(0, 1e-4, raw.shape).astype(np.float32)   # all near-identical
@@ -2510,7 +2510,7 @@ def test_fps_order_covers_clusters():
     assert len({i // 30 for i in first4}) == 4, f"FPS missed a cluster: {first4}"
 
 def test_frame_consensus_beats_pixel_pooling():
-    """[MEASURED Dorm-723] The v1 estimator pools pixels across shared frames, so a frame
+    """[MEASURED on a 723-frame indoor set] The v1 estimator pools pixels across shared frames, so a frame
     whose geometry is systematically displaced is read as inlier (its pixels agree with each
     other and are numerous). Reproduce that failure synthetically and pin the fix: 3 frames
     agree, 2 sit at a different scale+offset; pixel-pooled IRLS must be dragged off, and
@@ -2539,7 +2539,7 @@ def test_frame_consensus_beats_pixel_pooling():
 
 def test_consensus_gate_rejects_uncorroborated_edge():
     """A single-frame consensus is unverified, not merely noisy: with nothing to corroborate
-    it, a displaced frame is accepted with an excellent residual (measured on Dorm hub 0<-22,
+    it, a displaced frame is accepted with an excellent residual (measured on hub 0<-22,
     consensus 1 of 4 frames yet med_resid 0.048)."""
     ok = lambda **kw: _consensus_ok(dict({'med_resid': 0.01}, **kw) |
                                     {'state': _edge_state(dict({'med_resid': 0.01}, **kw))})
@@ -2577,7 +2577,7 @@ def test_edge_states_name_the_failure():
     assert _consensus_ok({'state': EDGE_GOOD}) and _consensus_ok({'state': EDGE_WEAK})
 
 def test_ambiguous_edge_detected_on_split_geometry():
-    """End-to-end on the measured Dorm signature: 3 frames at one scale, 2 at another.
+    """End-to-end on the measured signature: 3 frames at one scale, 2 at another.
     The estimator must recover the majority AND flag the edge AMBIGUOUS rather than
     quietly returning a compromise."""
     rng = np.random.default_rng(31)
