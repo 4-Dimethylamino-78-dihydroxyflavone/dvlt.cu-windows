@@ -212,6 +212,25 @@ echo %CONF%| findstr /r /x "0 1 0\.[0-9]* \.[0-9]* 1\.0*" >nul || (
     echo conf_drop/-c must be a number in 0-1, got: "!CONF!"
     exit /b 1
 )
+REM A fresh clone has no dvlt.exe, DLL or weights, so say so before anything is
+REM created. cuBLASLt cannot be left for the run to discover: without it dvlt.exe
+REM dies in the Windows loader before it can print a word (exit 0xC0000135) and
+REM the run just stops after the banner. A CUDA toolkit on PATH also satisfies it,
+REM which is how a missing DLL goes unnoticed on a build machine.
+set "CUBLAS="
+if exist "%ROOT%cublasLt64_12.dll" set "CUBLAS=1"
+if not defined CUBLAS for %%P in (cublasLt64_12.dll) do set "CUBLAS=%%~$PATH:P"
+set "MISSING="
+if not exist "%DVLT%" set "MISSING=!MISSING! dvlt.exe"
+if not defined CUBLAS set "MISSING=!MISSING! cublasLt64_12.dll"
+if not exist "%ROOT%model\weights.dvlt" set "MISSING=!MISSING! model\weights.dvlt"
+if defined MISSING (
+    echo Not found in !ROOT!:!MISSING!
+    echo Download the ready-to-run zip and unzip it:
+    echo   https://github.com/4-Dimethylamino-78-dihydroxyflavone/dvlt.cu-windows/releases/latest
+    echo or run setup.bat to build everything here ^(needs the CUDA toolkit and Visual Studio 2022^).
+    exit /b 1
+)
 if not defined PY (
     echo No Python found: run setup.bat to build the local python\ folder.
     exit /b 1
@@ -389,7 +408,11 @@ set "IMGS=!PREP!\keyed\images.txt"
 echo.
 :reconstruct
 "%DVLT%" -w "%ROOT%model\weights.dvlt" -o "%OUTPUT%" -c %CONF% -s %IMG_SIZE% -k %K% "!IMGS!"
-if %errorlevel% neq 0 exit /b %errorlevel%
+REM A crash or a loader failure prints nothing of its own: always say it stopped.
+if %errorlevel% neq 0 (
+    echo dvlt.exe failed with exit code %errorlevel%.
+    exit /b %errorlevel%
+)
 if defined SKY "!VSKY!" --strip "!OUTPUT!" || exit /b
 
 echo.
