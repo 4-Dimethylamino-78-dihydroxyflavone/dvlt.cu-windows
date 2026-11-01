@@ -1,22 +1,22 @@
+# build products
 build/
-dev/
-ext/
+dist/
+*.exe
+*.dll
+*.lib
+*.exp
 
-model/
+# fetched by setup.bat: cutlass headers, checkpoint + weight blob. Anchored:
+# an unanchored dir pattern matches at every depth (it once swallowed vfold/src/).
+/ext/
+/model/
 
-# ignore users' own input dumps, but ship the bundled sample
-inputs/*
-!inputs/shoe/
-
-*.png
-!assets/*.png
-
-*.bin
-*.dvlt
-*.ply
-*.o
-
+# runtime
+output/
+python/
 __pycache__/
 *.pyc
 
-output/
+# users' own input dumps; the bundled sample ships
+inputs/*
+!inputs/shoe/

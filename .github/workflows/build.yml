@@ -1,0 +1,67 @@
+name: build
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write          # gh release create on v* tags
+
+jobs:
+  windows:
+    # VS 2022 17.14 / MSVC 14.44: the toolset this port is built and tested with.
+    runs-on: windows-2022
+    timeout-minutes: 90
+    defaults:
+      run:
+        shell: cmd
+    steps:
+      - uses: actions/checkout@v4
+
+      # CUDA 12.1 via the network installer, only what the build links against:
+      # nvcc + runtime, cuBLAS (the one DLL that ships) and its headers/import
+      # lib. The action exports CUDA_PATH, which setup.bat/build.bat read.
+      - uses: Jimver/cuda-toolkit@v0.2.36
+        with:
+          cuda: '12.1.0'
+          method: network
+          sub-packages: '["nvcc", "cudart", "cublas", "cublas_dev"]'
+
+      # cutlass headers, cuBLASLt DLL, dvlt.exe + convert.exe, python\. A release
+      # tag also pulls the NVIDIA checkpoint and converts it (468 MB download).
+      - name: setup (build only)
+        if: github.ref_type != 'tag'
+        run: call .\setup.bat nomodel || exit /b 1
+
+      - name: setup (build + weights)
+        if: github.ref_type == 'tag'
+        run: call .\setup.bat || exit /b 1
+
+      # No GPU on the runner: the usage path (exits before any CUDA call) and
+      # the numpy/scipy self-tests, on the python\ that ships, are what can be
+      # checked here.
+      - name: smoke test
+        run: |
+          .\dvlt.exe -h || exit /b 1
+          .\python\python.exe dvlt_long.py --self-test || exit /b 1
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dvlt-win64-${{ github.sha }}
+          path: |
+            build/dvlt.exe
+            build/convert.exe
+
+      - name: package
+        if: github.ref_type == 'tag'
+        shell: pwsh
+        run: ./package.ps1 -Version ${{ github.ref_name }}
+
+      - name: release
+        if: github.ref_type == 'tag'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create ${{ github.ref_name }} dist\dvlt-win64-${{ github.ref_name }}.zip --title ${{ github.ref_name }} --generate-notes

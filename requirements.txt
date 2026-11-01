@@ -1,0 +1,6 @@
+# dvlt_postprocess.py + dvlt_long.py. Pinned to the versions the release is
+# tested with; setup_python.ps1 installs exactly these into python\.
+numpy==2.4.6
+scipy==1.15.3
+pillow==10.4.0
+trimesh==4.12.2

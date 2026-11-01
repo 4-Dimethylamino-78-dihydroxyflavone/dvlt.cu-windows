@@ -22,13 +22,30 @@ Licensed under the Apache License, Version 2.0.
     Paper:   https://arxiv.org/abs/2605.30215
 
 ------------------------------------------------------------------------------
-Model weights (NOT included)
+Model weights (release archives only; not in this repository)
 ------------------------------------------------------------------------------
-The DVLT model weights (the nvidia/dvlt checkpoint) are NOT distributed with
-this project. They are released separately by NVIDIA under the NVIDIA License
-(non-commercial; research and evaluation use only) and are fetched at setup
-time from https://huggingface.co/nvidia/dvlt. Your use of the weights is
-governed by the NVIDIA License, not by this project's Apache-2.0 license.
+The DVLT model weights (the nvidia/dvlt checkpoint) are NOT part of this source
+repository. They are released separately by NVIDIA under the NVIDIA License
+(non-commercial; research and evaluation use only). setup.bat fetches them from
+https://huggingface.co/nvidia/dvlt, and the release archives of dvlt.cu-windows
+redistribute the converted blob (model/weights.dvlt) under that same license,
+with its full text alongside as model/LICENSE.txt, as the license requires.
+Your use of the weights is governed by the NVIDIA License, not by this
+project's Apache-2.0 license.
+
+------------------------------------------------------------------------------
+Windows port (dvlt.cu-windows)
+------------------------------------------------------------------------------
+This repository is a Windows port of dvlt.cu, based on yassa9/dvlt.cu commit
+440a9f5 (2026-06-04): native MSVC/CUDA build, cross-platform file mapping,
+list-file input, EXIF orientation, the -k/-x/-e options, and the
+reconstruct / long-sequence / post-processing wrappers. The port is likewise
+licensed under the Apache License, Version 2.0 (see LICENSE); the upstream
+notice above is retained unchanged.
+
+Release archives additionally contain cublasLt64_12.dll, the NVIDIA cuBLASLt
+runtime, redistributed under the NVIDIA CUDA Toolkit EULA as a listed
+redistributable runtime library.
 
 ------------------------------------------------------------------------------
 Third-party components

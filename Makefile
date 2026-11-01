@@ -43,9 +43,9 @@ dvlt: dvlt.cu $(DVLT_DEPS)
 	$(NVCC) dvlt.cu $(NVCCFLAGS) $(LIBS) -o build/$@
 
 # weight converter: safetensors -> DVL1 blob
-convert: tools/convert.cpp
+convert: tools/convert.cpp platform_compat.cpp include/platform_compat.h
 	@mkdir -p build
-	$(CXX) tools/convert.cpp -std=c++20 -O2 -o build/$@
+	$(CXX) tools/convert.cpp platform_compat.cpp -std=c++20 -O2 -o build/$@
 
 clean:
 	rm -f build/dvlt build/convert

@@ -44,6 +44,8 @@ struct GpuArena {
         for (;;) {
             e = cudaMalloc(&base, bytes);
             if (e == cudaSuccess) break;
+            cudaGetLastError();              // clear only this attempt's oom, or the next stage's
+                                             // launch check reports it as its own
             if (bytes <= FLOOR) break;       // genuine oom: give up once down to the floor
             bytes = bytes * 9 / 10;          // back off 10% and retry
         }

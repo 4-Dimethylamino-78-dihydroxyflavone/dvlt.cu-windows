@@ -93,6 +93,14 @@ WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 */
 ```
 
+### cuBLASLt — NVIDIA, CUDA Toolkit EULA
+
+`cublasLt64_12.dll`, the cuBLAS Lt runtime, is the one CUDA library `dvlt.exe`
+links dynamically (cudart is static). Release archives ship it next to the exe;
+it is one of the runtime libraries the NVIDIA CUDA Toolkit End User License
+Agreement lists as redistributable (Attachment A). License:
+https://docs.nvidia.com/cuda/eula/index.html
+
 ## 2. Adapted algorithm lineage (reimplemented, not copied)
 
 This port reimplements DVLT's inference path. DVLT in turn adapts code from the

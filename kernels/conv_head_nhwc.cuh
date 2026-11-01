@@ -280,12 +280,23 @@ struct ConvDepthHeadNHWC {
         }
     }
 
+    // pad_ * filt_ -> out via the cutlass core. fatal on failure: cutlass consumes the launch
+    // error itself (cudaGetLastError), so the per-stage check in dvlt.cu would never see it.
+    void conv_core(__nv_bfloat16* out, int Cin, int Cout, int H, int W) {
+        cutlass::Status st = dvltconv::conv3x3_cutlass_core_bf16(pad_, filt_, out, B_, Cin, Cout, H, W, ws_);
+        if (st != cutlass::Status::kSuccess) {
+            fprintf(stderr, "cutlass conv3x3 failed: %s (B=%d Cin=%d Cout=%d %dx%d)\n",
+                    cutlass::cutlassGetStatusString(st), B_, Cin, Cout, W, H);
+            exit(1);
+        }
+    }
+
     // conv whose input is already in pad_ (written by a preceding padded groupnorm): permute the
     // filter + run the padding=0 bf16 cutlass core.
     void conv3x3_prepadded(const float* wt, __nv_bfloat16* out, int Cin, int Cout, int H, int W) {
         const int th = 256;
         permute_krsc_widen_kernel<<<((size_t)Cout*Cin*9 + th-1)/th, th>>>(wt, filt_, Cout, Cin, Cin);
-        dvltconv::conv3x3_cutlass_core_bf16(pad_, filt_, out, B_, Cin, Cout, H, W, ws_);
+        conv_core(out, Cin, Cout, H, W);
     }
 
     // transpose conv k2s2 (uv-concat fused) via gemm (fp32/tf32): in [B,H,W,Cprev] -> out [B,2H,2W,Cout].
@@ -313,7 +324,7 @@ struct ConvDepthHeadNHWC {
         const int th = 256; int Cp = up8(Cin);
         pad1_nhwc_widen_kernel<<<dim3(W+2, H+2, B_), Cp < 256 ? Cp : 256>>>(in, pad_, B_, Cin, Cp, H, W);
         permute_krsc_widen_kernel<<<((size_t)Cout*Cp*9 + th-1)/th, th>>>(wt, filt_, Cout, Cin, Cp);
-        dvltconv::conv3x3_cutlass_core_bf16(pad_, filt_, out, B_, Cp, Cout, H, W, ws_);
+        conv_core(out, Cp, Cout, H, W);
         if (bias) bias_nhwc_kernel<<<((size_t)B_*H*W*Cout + th-1)/th, th>>>(out, bias, Cout, (size_t)B_*H*W*Cout);
     }
 

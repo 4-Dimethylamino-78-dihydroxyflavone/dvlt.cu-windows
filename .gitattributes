@@ -1,11 +1,13 @@
 # normalize line endings on commit
 * text=auto
 
-# shell scripts must stay lf
-*.sh text eol=lf
+# shell scripts must stay lf; cmd wants crlf
+*.sh  text eol=lf
+*.bat text eol=crlf
 
-# vendored third-party header: keep out of github language stats
+# vendored third-party code: keep out of github language stats
 include/stb_image.h linguist-vendored
+tools/vendor/*      linguist-vendored
 
 # classify cuda headers as cuda (github detects .cu but not .cuh)
 *.cuh linguist-language=Cuda

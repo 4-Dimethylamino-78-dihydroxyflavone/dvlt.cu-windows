@@ -36,7 +36,28 @@ struct LinearPlan {
     // cached cuBLASLt descriptors for gelu+bias gemm
     cublasLtMatmulDesc_t    gelu_desc_ = nullptr;
     cublasLtMatmulAlgo_t    gelu_algo_;
-    bool                    gelu_ok_   = false;
+    cublasStatus_t          gelu_st_   = CUBLAS_STATUS_NOT_INITIALIZED;
+
+    // best heuristic algo for desc over the cached layouts. NOT_SUPPORTED when the heuristic
+    // succeeds but offers none; any other failure keeps its own status for the message.
+    cublasStatus_t pick_algo(CublasCtx& ctx, cublasLtMatmulDesc_t desc, cublasLtMatmulPreference_t pref,
+                             cublasLtMatmulAlgo_t& algo) {
+        cublasLtMatmulHeuristicResult_t result;
+        int nr = 0;
+        cublasStatus_t s = cublasLtMatmulAlgoGetHeuristic(ctx.lt, desc, lW_, lA_, lC_, lC_, pref, 1, &result, &nr);
+        if (s == CUBLAS_STATUS_SUCCESS && nr == 0) s = CUBLAS_STATUS_NOT_SUPPORTED;
+        if (s == CUBLAS_STATUS_SUCCESS) algo = result.algo;
+        return s;
+    }
+
+    // no algo: matmul on an unset algo would only write garbage. Only "none offered" points
+    // at the dll; other statuses are reported as they are.
+    void no_kernel(const char* what, cublasStatus_t s) const {
+        fprintf(stderr, "cublasLt: no bf16 %s kernel (M=%d K=%d N=%d): %s - %s%s\n", what, M_, K_, N_,
+                cublasLtGetStatusName(s), cublasLtGetStatusString(s),
+                s == CUBLAS_STATUS_NOT_SUPPORTED ? " (the bundled cublasLt64_12.dll may predate this gpu)" : "");
+        exit(1);
+    }
 
     void init(CublasCtx& ctx, int M, int K, int N) {
         M_ = M; K_ = K; N_ = N;
@@ -45,39 +66,31 @@ struct LinearPlan {
         cublasOperation_t opT = CUBLAS_OP_T, opN = CUBLAS_OP_N;
 
         // plain gemm
-        cublasLtMatmulDescCreate(&desc_, CUBLAS_COMPUTE_32F, CUDA_R_32F);
-        cublasLtMatmulDescSetAttribute(desc_, CUBLASLT_MATMUL_DESC_TRANSA, &opT, sizeof(opT));
-        cublasLtMatmulDescSetAttribute(desc_, CUBLASLT_MATMUL_DESC_TRANSB, &opN, sizeof(opN));
+        CUBLAS_CHECK(cublasLtMatmulDescCreate(&desc_, CUBLAS_COMPUTE_32F, CUDA_R_32F));
+        CUBLAS_CHECK(cublasLtMatmulDescSetAttribute(desc_, CUBLASLT_MATMUL_DESC_TRANSA, &opT, sizeof(opT)));
+        CUBLAS_CHECK(cublasLtMatmulDescSetAttribute(desc_, CUBLASLT_MATMUL_DESC_TRANSB, &opN, sizeof(opN)));
 
-        cublasLtMatrixLayoutCreate(&lW_, CUDA_R_16BF, K, N, K);
-        cublasLtMatrixLayoutCreate(&lA_, CUDA_R_16BF, K, M, K);
-        cublasLtMatrixLayoutCreate(&lC_, CUDA_R_16BF, N, M, N);
+        CUBLAS_CHECK(cublasLtMatrixLayoutCreate(&lW_, CUDA_R_16BF, K, N, K));
+        CUBLAS_CHECK(cublasLtMatrixLayoutCreate(&lA_, CUDA_R_16BF, K, M, K));
+        CUBLAS_CHECK(cublasLtMatrixLayoutCreate(&lC_, CUDA_R_16BF, N, M, N));
 
         cublasLtMatmulPreference_t pref;
-        cublasLtMatmulPreferenceCreate(&pref);
+        CUBLAS_CHECK(cublasLtMatmulPreferenceCreate(&pref));
         size_t ws = CublasCtx::WS_BYTES;
-        cublasLtMatmulPreferenceSetAttribute(pref, CUBLASLT_MATMUL_PREF_MAX_WORKSPACE_BYTES,
-                                              &ws, sizeof(ws));
-        cublasLtMatmulHeuristicResult_t result;
-        int nr;
-        cublasLtMatmulAlgoGetHeuristic(ctx.lt, desc_, lW_, lA_, lC_, lC_,
-                                        pref, 1, &result, &nr);
-        algo_ = result.algo;
+        CUBLAS_CHECK(cublasLtMatmulPreferenceSetAttribute(pref, CUBLASLT_MATMUL_PREF_MAX_WORKSPACE_BYTES,
+                                                          &ws, sizeof(ws)));
+        if (cublasStatus_t s = pick_algo(ctx, desc_, pref, algo_)) no_kernel("gemm", s);
 
         // gelu+bias gemm
-        cublasLtMatmulDescCreate(&gelu_desc_, CUBLAS_COMPUTE_32F, CUDA_R_32F);
-        cublasLtMatmulDescSetAttribute(gelu_desc_, CUBLASLT_MATMUL_DESC_TRANSA, &opT, sizeof(opT));
-        cublasLtMatmulDescSetAttribute(gelu_desc_, CUBLASLT_MATMUL_DESC_TRANSB, &opN, sizeof(opN));
+        CUBLAS_CHECK(cublasLtMatmulDescCreate(&gelu_desc_, CUBLAS_COMPUTE_32F, CUDA_R_32F));
+        CUBLAS_CHECK(cublasLtMatmulDescSetAttribute(gelu_desc_, CUBLASLT_MATMUL_DESC_TRANSA, &opT, sizeof(opT)));
+        CUBLAS_CHECK(cublasLtMatmulDescSetAttribute(gelu_desc_, CUBLASLT_MATMUL_DESC_TRANSB, &opN, sizeof(opN)));
         cublasLtEpilogue_t epi = CUBLASLT_EPILOGUE_GELU_BIAS;
-        cublasLtMatmulDescSetAttribute(gelu_desc_, CUBLASLT_MATMUL_DESC_EPILOGUE, &epi, sizeof(epi));
+        CUBLAS_CHECK(cublasLtMatmulDescSetAttribute(gelu_desc_, CUBLASLT_MATMUL_DESC_EPILOGUE, &epi, sizeof(epi)));
         cudaDataType_t biasType = CUDA_R_16BF;
-        cublasLtMatmulDescSetAttribute(gelu_desc_, CUBLASLT_MATMUL_DESC_BIAS_DATA_TYPE,
-                                        &biasType, sizeof(biasType));
-
-        cublasLtMatmulAlgoGetHeuristic(ctx.lt, gelu_desc_, lW_, lA_, lC_, lC_,
-                                        pref, 1, &result, &nr);
-        gelu_ok_ = (nr > 0);
-        if (gelu_ok_) gelu_algo_ = result.algo;
+        CUBLAS_CHECK(cublasLtMatmulDescSetAttribute(gelu_desc_, CUBLASLT_MATMUL_DESC_BIAS_DATA_TYPE,
+                                                    &biasType, sizeof(biasType)));
+        gelu_st_ = pick_algo(ctx, gelu_desc_, pref, gelu_algo_);   // checked at use: few plans run it
 
         cublasLtMatmulPreferenceDestroy(pref);
     }
@@ -91,9 +104,9 @@ struct LinearPlan {
               float                alpha  = 1.f,
               float                beta   = 0.f,
               cudaStream_t         stream = nullptr) {
-        cublasLtMatmul(ctx.lt, desc_, &alpha, weight, lW_, input, lA_,
-                       &beta, output, lC_, output, lC_,
-                       &algo_, ctx.workspace, CublasCtx::WS_BYTES, stream);
+        CUBLAS_CHECK(cublasLtMatmul(ctx.lt, desc_, &alpha, weight, lW_, input, lA_,
+                                    &beta, output, lC_, output, lC_,
+                                    &algo_, ctx.workspace, CublasCtx::WS_BYTES, stream));
         if (bias) {
             int total = M_ * N_;
             linear_bias_add<<<(total + 255) / 256, 256, 0, stream>>>(output, bias, total, N_);
@@ -108,12 +121,13 @@ struct LinearPlan {
                         __nv_bfloat16*       output,
                         const __nv_bfloat16* bias,
                         cudaStream_t         stream = nullptr) {
-        cublasLtMatmulDescSetAttribute(gelu_desc_, CUBLASLT_MATMUL_DESC_BIAS_POINTER,
-                                        &bias, sizeof(bias));
+        if (gelu_st_ != CUBLAS_STATUS_SUCCESS) no_kernel("gelu+bias gemm", gelu_st_);
+        CUBLAS_CHECK(cublasLtMatmulDescSetAttribute(gelu_desc_, CUBLASLT_MATMUL_DESC_BIAS_POINTER,
+                                                    &bias, sizeof(bias)));
         float alpha = 1.f, beta = 0.f;
-        cublasLtMatmul(ctx.lt, gelu_desc_, &alpha, weight, lW_, input, lA_,
-                       &beta, output, lC_, output, lC_,
-                       &gelu_algo_, ctx.workspace, CublasCtx::WS_BYTES, stream);
+        CUBLAS_CHECK(cublasLtMatmul(ctx.lt, gelu_desc_, &alpha, weight, lW_, input, lA_,
+                                    &beta, output, lC_, output, lC_,
+                                    &gelu_algo_, ctx.workspace, CublasCtx::WS_BYTES, stream));
     }
 
     void destroy() {

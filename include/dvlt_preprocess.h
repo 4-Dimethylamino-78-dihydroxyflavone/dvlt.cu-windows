@@ -11,6 +11,7 @@
 #include <vector>
 #include <string>
 #include <algorithm>
+#include <atomic>
 #include <thread>
 #if defined(__AVX2__)
 #include <immintrin.h>
@@ -92,13 +93,92 @@ inline std::vector<float> resize_rgb(const std::vector<float>& src, int src_h, i
 // preprocessed frame: rgb [0,1] image (for point colors) + its post-crop size.
 struct Frame { std::vector<float> rgb; int H, W; };   // rgb is [H,W,3] interleaved, 0..1
 
-// load one image -> resize-longest -> center-crop /patch. returns rgb [H,W,3] in 0..1.
+// ---- EXIF orientation (ported from vggttt-win, 2026-08-15) --------------------------
+// stb_image ignores EXIF, so phone photos arrive as the sensor stored them -- often
+// sideways. A batch mixing gravity directions shatters the reconstruction (measured on
+// the Sputnik set: 88x rot90CW + 9x rot90CCW + 9x rot180 + 33x upright -> fragment soup).
+// Minimal JPEG APP1/TIFF walk for tag 0x0112; returns 1 (upright) on anything unexpected.
+inline int exif_orientation(const char* path) {
+    FILE* f = fopen(path, "rb");
+    if (!f) return 1;
+    auto rd = [&](uint8_t* b, size_t n) { return fread(b, 1, n, f) == n; };
+    uint8_t h[2];
+    if (!rd(h, 2) || h[0] != 0xFF || h[1] != 0xD8) { fclose(f); return 1; }
+    while (true) {
+        uint8_t m[2];
+        if (!rd(m, 2) || m[0] != 0xFF) break;
+        if (m[1] == 0xDA || m[1] == 0xD9) break;
+        uint8_t lb[2];
+        if (!rd(lb, 2)) break;
+        int len = (lb[0] << 8 | lb[1]) - 2;
+        if (len < 0) break;
+        if (m[1] != 0xE1) { fseek(f, len, SEEK_CUR); continue; }
+        std::vector<uint8_t> seg(len);
+        if (!rd(seg.data(), len)) break;
+        if (len < 14 || memcmp(seg.data(), "Exif\0\0", 6) != 0) continue;
+        const uint8_t* t = seg.data() + 6;
+        size_t tn = len - 6;
+        bool le;
+        if (t[0] == 'I' && t[1] == 'I') le = true;
+        else if (t[0] == 'M' && t[1] == 'M') le = false;
+        else break;
+        auto u16 = [&](size_t o) { return le ? (t[o] | t[o + 1] << 8) : (t[o] << 8 | t[o + 1]); };
+        auto u32 = [&](size_t o) {
+            return le ? ((uint32_t)t[o] | t[o+1] << 8 | t[o+2] << 16 | (uint32_t)t[o+3] << 24)
+                      : ((uint32_t)t[o] << 24 | t[o+1] << 16 | t[o+2] << 8 | (uint32_t)t[o+3]);
+        };
+        if (tn < 8) break;
+        uint32_t ifd = u32(4);
+        if (ifd + 2 > tn) break;
+        int cnt = u16(ifd);
+        for (int i = 0; i < cnt; i++) {
+            size_t e = ifd + 2 + (size_t)i * 12;
+            if (e + 12 > tn) break;
+            if (u16(e) == 0x0112) {
+                int v = u16(e + 8);
+                fclose(f);
+                return (v >= 1 && v <= 8) ? v : 1;
+            }
+        }
+        break;
+    }
+    fclose(f);
+    return 1;
+}
+
+// Undo the stored orientation: dst is the upright image. Orientations 5-8 swap dimensions.
+inline void exif_reorient(std::vector<uint8_t>& px, int& w, int& h, int o) {
+    if (o <= 1) return;
+    int W = w, H = h;
+    int nw = (o >= 5) ? H : W, nh = (o >= 5) ? W : H;
+    std::vector<uint8_t> out((size_t)nw * nh * 3);
+    for (int dy = 0; dy < nh; dy++)
+        for (int dx = 0; dx < nw; dx++) {
+            int sx, sy;
+            switch (o) {
+                case 2: sx = W - 1 - dx; sy = dy;         break;
+                case 3: sx = W - 1 - dx; sy = H - 1 - dy; break;
+                case 4: sx = dx;         sy = H - 1 - dy; break;
+                case 5: sx = dy;         sy = dx;         break;
+                case 6: sx = dy;         sy = H - 1 - dx; break;   // rot 90 CW to display
+                case 7: sx = W - 1 - dy; sy = H - 1 - dx; break;
+                default:sx = W - 1 - dy; sy = dx;         break;   // 8: rot 90 CCW
+            }
+            memcpy(&out[((size_t)dy * nw + dx) * 3], &px[((size_t)sy * W + sx) * 3], 3);
+        }
+    px.swap(out); w = nw; h = nh;
+}
+
+// load one image -> EXIF-upright -> resize-longest -> center-crop /patch. rgb [H,W,3] 0..1.
 inline Frame load_frame(const char* path, int img_size, int patch) {
-    int sw, sh, nc; uint8_t* px = stbi_load(path, &sw, &sh, &nc, 3);
-    if (!px) { fprintf(stderr, "preprocess: cannot load %s: %s\n", path, stbi_failure_reason()); exit(1); }
+    int sw, sh, nc; uint8_t* raw = stbi_load(path, &sw, &sh, &nc, 3);
+    if (!raw) { fprintf(stderr, "preprocess: cannot load %s: %s\n", path, stbi_failure_reason()); exit(1); }
+    std::vector<uint8_t> px(raw, raw + (size_t)sh * sw * 3);
+    stbi_image_free(raw);
+    exif_reorient(px, sw, sh, exif_orientation(path));
     std::vector<float> src((size_t)sh * sw * 3);
     for (size_t i = 0; i < src.size(); i++) src[i] = px[i] / 255.f;
-    stbi_image_free(px);
+    px.clear(); px.shrink_to_fit();
 
     float scale = (float)img_size / std::max(sh, sw);
     int nh = (int)lroundf(sh * scale), nw = (int)lroundf(sw * scale);
@@ -115,6 +195,21 @@ inline Frame load_frame(const char* path, int img_size, int patch) {
     return f;
 }
 
+// load paths[off, off+n) into frames[0, n) on min(n, cores) workers pulling indices from a
+// counter. a full-res decode is transient but large (~0.3 GB for 24 MP as float), so one
+// thread per frame held every frame's decode at once: 10-45 GB of host RAM for 150 frames.
+inline void load_frames(std::vector<Frame>& frames, const std::vector<std::string>& paths,
+                        size_t off, int n, int img_size, int patch) {
+    int nt = std::min(n, (int)std::max(1u, std::thread::hardware_concurrency()));
+    std::atomic<int> next{0};
+    std::vector<std::thread> th;
+    for (int t = 0; t < nt; t++)
+        th.emplace_back([&]{
+            for (int i = next++; i < n; i = next++) frames[i] = load_frame(paths[off + i].c_str(), img_size, patch);
+        });
+    for (auto& t : th) t.join();
+}
+
 // batch of frames -> normalized [S,3,H,W] (center-padded to common H,W, pad 0) + size.
 // point colors come from `norm` (the ply writer denormalizes), so no separate rgb buffer is kept.
 struct Batch { std::vector<float> norm; int S, H, W; };
@@ -122,9 +217,7 @@ struct Batch { std::vector<float> norm; int S, H, W; };
 inline Batch preprocess(const std::vector<std::string>& paths, int img_size, int patch) {
     int S = (int)paths.size();
     std::vector<Frame> frames(S);
-    std::vector<std::thread> th;
-    for (int i = 0; i < S; i++) th.emplace_back([&, i]{ frames[i] = load_frame(paths[i].c_str(), img_size, patch); });
-    for (auto& t : th) t.join();
+    load_frames(frames, paths, 0, S, img_size, patch);
 
     int H = 0, W = 0;
     for (auto& f : frames) { H = std::max(H, f.H); W = std::max(W, f.W); }

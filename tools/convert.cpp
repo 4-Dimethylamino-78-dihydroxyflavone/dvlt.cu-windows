@@ -8,10 +8,8 @@
 #include <string>
 #include <vector>
 #include <unordered_map>
-#include <sys/mman.h>
-#include <sys/stat.h>
-#include <fcntl.h>
-#include <unistd.h>
+#include <filesystem>
+#include "../include/platform_compat.h"   // read-only file mapping: mmap (posix) / MapViewOfFile (win32)
 
 static uint16_t f32_to_bf16(float f) {
     uint32_t b; memcpy(&b, &f, 4);
@@ -100,13 +98,10 @@ static bool is_f32(const std::string& n) {
 int main(int argc, char** argv) {
     const char* src = argc > 1 ? argv[1] : "model/model.safetensors";
     const char* dst = argc > 2 ? argv[2] : "model/weights.dvlt";
-    mkdir("model", 0755);   // ensure the default output dir exists
+    { std::error_code ec; std::filesystem::create_directories(std::filesystem::path(dst).parent_path(), ec); }
 
-    int fd = open(src, O_RDONLY);
-    if (fd < 0) { fprintf(stderr, "cannot open %s\n", src); return 1; }
-    struct stat st; fstat(fd, &st);
-    const uint8_t* base = (const uint8_t*)mmap(nullptr, st.st_size, PROT_READ, MAP_PRIVATE, fd, 0);
-    if (base == MAP_FAILED) { fprintf(stderr, "mmap failed\n"); return 1; }
+    platcompat::FileMap fm = platcompat::map_readonly(src);   // fail-fast with a message, like the loader
+    const uint8_t* base = fm.data;
 
     uint64_t hlen; memcpy(&hlen, base, 8);
     JsonParser jp{ (const char*)base + 8, (const char*)base + 8 + hlen };
@@ -197,7 +192,7 @@ int main(int argc, char** argv) {
     }
     long bytes = ftell(f);
     fclose(f);
-    munmap((void*)base, st.st_size); close(fd);
+    platcompat::unmap(fm);
     printf("wrote %s: %zu tensors (%d bf16), %.1f MB\n", dst, order.size(), n_bf16, bytes / 1e6);
     return 0;
 }

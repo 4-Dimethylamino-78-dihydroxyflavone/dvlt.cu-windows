@@ -7,10 +7,7 @@
 #include <random>
 #include <numeric>
 #include <cstring>
-#include <sys/mman.h>
-#include <sys/stat.h>
-#include <fcntl.h>
-#include <unistd.h>
+#include "../include/platform_compat.h"   // cross-platform read-only file mapping (mmap / Win32)
 #include "../include/arena.h"
 #include "../include/cuda_util.h"
 #include "dinov2_encoder.cuh"
@@ -145,14 +142,8 @@ struct WeightFile {
     uint32_t ntensors = 0;
     const uint8_t* records() const { return base + 8; }
     void open(const char* path) {
-        int fd = ::open(path, O_RDONLY);
-        if (fd < 0) { fprintf(stderr, "weights: cannot open %s\n", path); exit(1); }
-        struct stat st; fstat(fd, &st); size = st.st_size;
-        // MAP_POPULATE prefaults the whole file sequentially at mmap time (faster than scattered
-        // page faults during the per-tensor copies).
-        base = (uint8_t*)mmap(nullptr, size, PROT_READ, MAP_PRIVATE | MAP_POPULATE, fd, 0);
-        ::close(fd);
-        if (base == MAP_FAILED) { fprintf(stderr, "weights: mmap failed on %s\n", path); exit(1); }
+        platcompat::FileMap m = platcompat::map_readonly(path);   // mmap (posix) / file-mapping (win)
+        base = (uint8_t*)m.data; size = m.size;
         if (memcmp(base, "DVL1", 4) != 0) { fprintf(stderr, "weights: bad magic in %s\n", path); exit(1); }
         memcpy(&ntensors, base + 4, 4);
     }

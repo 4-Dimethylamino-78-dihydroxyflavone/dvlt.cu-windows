@@ -7,18 +7,30 @@
 #include <cublasLt.h>
 #include <cstdlib>
 #include <cstdio>
+#include "cuda_util.h"
 
 #include <cutlass/cutlass.h>
 #include <cutlass/gemm/device/gemm.h>
 #include <cutlass/epilogue/thread/linear_combination.h>
+
+// a failed cuBLASLt call leaves its output untouched and the run carries on with garbage
+// (e.g. a gpu newer than the bundled cublasLt64_12.dll), so every status is fatal.
+#define CUBLAS_CHECK(x) do { \
+    cublasStatus_t _s = (x); \
+    if (_s != CUBLAS_STATUS_SUCCESS) { \
+        fprintf(stderr, "cublasLt error %s:%d: %s - %s\n", __FILE__, __LINE__, \
+                cublasLtGetStatusName(_s), cublasLtGetStatusString(_s)); \
+        exit(1); \
+    } \
+} while(0)
 
 struct CublasCtx {
     cublasLtHandle_t lt = nullptr;
     void* workspace = nullptr;
     static constexpr size_t WS_BYTES = 4 * 1024 * 1024;
     void init() {
-        cublasLtCreate(&lt);
-        cudaMalloc(&workspace, WS_BYTES);
+        CUBLAS_CHECK(cublasLtCreate(&lt));
+        CUDA_CHECK(cudaMalloc(&workspace, WS_BYTES));
     }
     void destroy() {
         if (workspace) { cudaFree(workspace); workspace = nullptr; }
