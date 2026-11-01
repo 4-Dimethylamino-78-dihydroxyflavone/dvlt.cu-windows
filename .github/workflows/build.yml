@@ -21,15 +21,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # CUDA 12.1 via the network installer, only what the build needs: nvcc +
-      # runtime, cuBLAS (the one DLL that ships) and its headers/import lib, and
-      # thrust for the C++ headers (cuda_bf16.hpp includes <nv/target>). The
-      # action exports CUDA_PATH, which setup.bat/build.bat read.
+      # The full CUDA 12.1 toolkit, the same one the README says to install: a
+      # hand-picked subset misses headers the build needs (thrust, curand), and
+      # each miss only shows up here. The action exports CUDA_PATH, which
+      # setup.bat/build.bat read.
       - uses: Jimver/cuda-toolkit@v0.2.36
         with:
           cuda: '12.1.0'
           method: network
-          sub-packages: '["nvcc", "cudart", "cublas", "cublas_dev", "thrust"]'
 
       # cutlass headers, cuBLASLt DLL, dvlt.exe + convert.exe, python\. A release
       # tag also pulls the NVIDIA checkpoint and converts it (468 MB download).
