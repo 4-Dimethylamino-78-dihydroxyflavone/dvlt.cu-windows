@@ -14,8 +14,8 @@ REM                hallucination. Lower toward 0.1 to keep low-texture ground
 REM                like water and shadow.)
 REM   loop_steps  K, trained range 8-16 (default 16 = paper optimum;
 REM               K>16 degrades poses, K<8 is out-of-distribution)
-REM   formats     dvlt_postprocess outputs (default ply,glb). Comma list from
-REM               ply,glb,xyz,pcd,npz,colmap,transforms - or 'all'. xyz is slow.
+REM   formats     dvlt_postprocess outputs (default ply,glb,las). Comma list from
+REM               ply,glb,las,xyz,pcd,npz,colmap,transforms - or 'all'. xyz is slow.
 REM Datasets over 150 frames (on 16 GB; every frame limit scales with the
 REM GPU's VRAM) are routed to the long-sequence Sim3 pipeline.
 REM Optional preprocessing (single-pass runs), intermediates in <output>\prep:
@@ -135,7 +135,7 @@ REM wherever it stands after the input or -f, and is never the output: a folder
 REM named like a format needs -o. Doubled commas give every name its own
 REM ",name," to delete; the '.' keeps REST defined once the names are gone.
 set "REST=.,!ARG:,=,,!,"
-for %%n in (ply glb xyz pcd npz colmap transforms all) do set "REST=!REST:,%%n,=!"
+for %%n in (ply glb las xyz pcd npz colmap transforms all) do set "REST=!REST:,%%n,=!"
 if "!REST!"=="." if defined INPUT   ( set "FORMATS=!FORMATS!,!ARG!" & shift /1 & goto parse )
 if "!REST!"=="." if defined FORMATS ( set "FORMATS=!FORMATS!,!ARG!" & shift /1 & goto parse )
 if not defined INPUT   ( set "INPUT=%ARG%" & shift /1 & goto parse )

@@ -6,10 +6,11 @@ Usage:
     python dvlt_postprocess.py <out_dvlt_dir> [--images <input_image_dir_or_list.txt>]
                                [--formats ply,glb,...]
 
-Formats (comma list; default ply,glb — the rest cost time, ask for what you need):
+Formats (comma list; default ply,glb,las — the rest cost time, ask for what you need):
     ply         scene_upright.ply   ground-corrected point cloud (scene.ply from
                                     the reconstruction is the not-upright one)
     glb         scene.glb + scene_upright.glb   viewers (original axes / Y-up)
+    las         scene_upright.las   LAS 1.2 with RGB, Z-up (QGIS / CloudCompare / PDAL)
     xyz         scene_upright.xyz   XYZ-RGB text (CloudCompare / ArcGIS / QGIS; SLOW)
     pcd         scene_upright.pcd   Open3D/PCL binary (ROS / robotics)
     npz         scene_upright.npz   numpy archive: xyz, rgb, poses, intrinsics, rotation
@@ -24,6 +25,7 @@ import argparse
 import shutil
 import struct
 import sys
+import time
 from pathlib import Path
 
 import numpy as np
@@ -282,6 +284,35 @@ def export_glb(xyz, rgb, path):
         f.write(struct.pack('<II', len(pb) + len(cb), 0x004E4942) + pb + cb)
 
 
+def export_las(xyz, rgb, path):
+    """LAS 1.2 point format 2 (XYZ + RGB), written directly (laspy is not bundled).
+    Stored Z-up as (x, -z, y), a rotation of the Y-up upright frame: every LAS tool
+    reads Z as height. LAS keeps i32 = (v - offset) / scale, and DVLT's units are
+    the scene's own, where a lidar-style fixed 1 mm would band a 2-unit room. Scale
+    is the largest power of ten no coarser than float32 at this extent (2^-24 of
+    it), leaving i32 headroom for tools that re-offset. Colours are 16-bit by spec."""
+    v = np.column_stack((xyz[:, 0], -xyz[:, 2], xyz[:, 1])).astype(np.float64)
+    lo, hi = (v.min(0), v.max(0)) if len(v) else (np.zeros(3), np.zeros(3))
+    extent = float((hi - lo).max())
+    scale = 10.0 ** np.floor(np.log10(extent / 2**24)) if extent > 0 else 1e-3
+    offset = (lo + hi) / 2
+    rec = np.zeros(len(v), [('xyz', '<i4', 3), ('intensity', '<u2'), ('returns', 'u1'),
+                            ('class', 'u1'), ('angle', 'i1'), ('user', 'u1'),
+                            ('source', '<u2'), ('rgb', '<u2', 3)])
+    rec['xyz'] = np.round((v - offset) / scale)
+    rec['returns'] = 0b001001                         # return 1 of 1; 0 is not a valid return
+    rec['rgb'] = rgb[:, :3].astype(np.uint16) * 257   # 255 -> 65535
+    lo, hi = (offset + np.round((b - offset) / scale) * scale for b in (lo, hi))   # as stored
+    now = time.gmtime()
+    head = struct.pack('<4sHHIHH8sBB32s32sHHHIIBHI5I12d', b'LASF', 0, 0, 0, 0, 0, bytes(8), 1, 2,
+                       b'OTHER', b'dvlt_postprocess', now.tm_yday, now.tm_year, 227, 227, 0,
+                       2, 26, len(rec), len(rec), 0, 0, 0, 0, scale, scale, scale, *offset,
+                       hi[0], lo[0], hi[1], lo[1], hi[2], lo[2])
+    with open(path, 'wb') as f:
+        f.write(head)
+        rec.tofile(f)
+
+
 def export_xyz(xyz, rgb, path):
     """Space-separated XYZ-RGB text. CloudCompare / MeshLab / ArcGIS / QGIS compatible."""
     print(f"  writing {path.name} ({len(xyz):,} pts) …")
@@ -397,7 +428,7 @@ def write_colmap(colmap_dir, poses, xyz, rgb, image_names, dvlt_wh, orig_wh):
 
 # ─── main ─────────────────────────────────────────────────────────────────────
 
-FORMATS = {'ply', 'glb', 'xyz', 'pcd', 'npz', 'colmap', 'transforms'}
+FORMATS = {'ply', 'glb', 'las', 'xyz', 'pcd', 'npz', 'colmap', 'transforms'}
 
 
 def main():
@@ -412,8 +443,8 @@ def main():
                          'reconstruction (enables intrinsic rescaling + COLMAP images/). '
                          'For a dvlt_long merged/ folder pass merged/images.txt: the '
                          'frames it kept, as dropped frames have no pose')
-    ap.add_argument('--formats', '-f', default='ply,glb',
-                    help="Comma list of outputs (default: ply,glb). "
+    ap.add_argument('--formats', '-f', default='ply,glb,las',
+                    help="Comma list of outputs (default: ply,glb,las). "
                          f"Choices: {', '.join(sorted(FORMATS))}, all")
     args = ap.parse_args()
 
@@ -495,6 +526,11 @@ def main():
         export_glb(xyz_up, rgb, out / 'scene_upright.glb')
         written.append(('scene.glb', 'GLB — original axes'))
         written.append(('scene_upright.glb', 'GLB — Y-up, ground-aligned'))
+
+    if 'las' in fmts:
+        print("[las   ] scene_upright.las …")
+        export_las(xyz_up, rgb, out / 'scene_upright.las')
+        written.append(('scene_upright.las', 'LAS 1.2, Z-up (QGIS / CloudCompare / PDAL)'))
 
     if 'xyz' in fmts:
         print("[xyz   ] scene_upright.xyz …")

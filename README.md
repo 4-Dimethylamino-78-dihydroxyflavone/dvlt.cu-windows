@@ -5,7 +5,7 @@ CUDA/C++ inference engine for NVIDIA's **DVLT / Déjà View** looped transformer
 ([arXiv:2605.30215](https://arxiv.org/abs/2605.30215)): a folder of photos in, a dense point cloud
 plus camera poses out, in one forward pass, with no per-scene training. On top of the binary sit the
 wrappers that make it a field tool: an auto-sizing `reconstruct.bat`, a long-sequence chunk aligner,
-and a post-processor that writes upright PLY/GLB and the COLMAP / Nerfstudio layouts 3DGS trainers
+and a post-processor that writes upright PLY/GLB/LAS and the COLMAP / Nerfstudio layouts 3DGS trainers
 expect.
 
 **Every release zip is self-contained.** The exe, the one CUDA DLL it needs, the model weights, a
@@ -64,7 +64,7 @@ kept as written and line 1 becomes the reference camera. A directory is sorted b
 | `output_dir` | `<input>_out_dvlt` | written **beside** the input, never inside an image folder (where COLMAP / 3DGS trainers would ingest it): `img\scene` → `img\scene_out_dvlt`; a list inside its image folder steps out beside it, `scene\vfold-60.txt` → `scene_vfold-60_out_dvlt`; a list elsewhere gets one beside it, `lists\vfold-60.txt` → `lists\vfold-60_out_dvlt`. Created before anything runs, so an unwritable target (read-only media) fails at once |
 | `conf_drop` | 0.5 | drop that **fraction** of lowest-confidence points (a percentile, not a threshold, so it changes density, not geometry; 0.5 matches NVIDIA's demo default and suppresses sky hallucination. Lower toward 0.1 to keep low-texture ground like water or shadow). Single pass only |
 | `loop_steps` | 16 | looped-transformer iterations K. Trained range **[8, 16]**; 16 = paper optimum. K>16 degrades poses and collapses past ~30 (paper App. D); K<8 is out-of-distribution. Accepted: 1–64, no leading zeros |
-| `formats` | `ply,glb` | post-processor outputs, comma list from `ply,glb,xyz,pcd,npz,colmap,transforms`, or `all`. `xyz` is by far the slowest; `pcd` is written directly, no open3d needed |
+| `formats` | `ply,glb,las` | post-processor outputs, comma list from `ply,glb,las,xyz,pcd,npz,colmap,transforms`, or `all`. `xyz` is by far the slowest; `las` and `pcd` are written directly, no laspy or open3d needed |
 
 - Single pass up to 150 frames on 16 GB: resolution auto-steps 504 → 448 → 392 → 336 px past 80,
   110 and 140 frames. Every limit scales with VRAM: on 8 GB it is 34 / 47 / 60, single pass up to 65.
@@ -114,9 +114,12 @@ run unless `--keep-prep` is given (the COLMAP export already holds the corrected
 
 `dvlt.exe`: `scene.ply` (first-camera frame, OpenCV axes, +Y is image-down), `poses.json` (c2w +
 intrinsics), `report.txt`. `dvlt_postprocess.py` adds `scene_upright.ply`, `scene.glb`,
-`scene_upright.glb`, `poses_upright.json`, and on request `scene_upright.{xyz,pcd,npz}`,
+`scene_upright.glb`, `scene_upright.las`, `poses_upright.json`, and on request `scene_upright.{xyz,pcd,npz}`,
 `colmap/sparse/0/` + `colmap/images/` (brush / 3DGS trainers) and `transforms.json` (Nerfstudio).
-It needs no open3d for `pcd`, and runs on consoles whose code page is not UTF-8. GLB colours are
+It needs no open3d for `pcd`, and runs on consoles whose code page is not UTF-8.
+`scene_upright.las` (LAS 1.2 with RGB) is the one Z-up output, stored as `(x, -z, y)` of the Y-up
+upright frame, because QGIS, CloudCompare, PDAL and LAStools read Z as height. It has no CRS, and
+its units are the reconstruction's own, not metres. GLB colours are
 linear, as glTF requires (Blender imports them unwashed). Phone photos with an EXIF rotation are
 written upright into `colmap/images/` (JPEG q95) with matching camera sizes, since trainers load
 pixels without EXIF; if the source and the reconstruction disagree on aspect, colmap/transforms

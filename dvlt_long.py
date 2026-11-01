@@ -1271,8 +1271,8 @@ def main():
     ap.add_argument('--gate-scale', type=float, default=3.0)
     ap.add_argument('--gps', choices=['auto', 'off'], default='auto')
     ap.add_argument('--dvlt', default=str(Path(__file__).parent / 'dvlt.exe'))
-    ap.add_argument('--formats', default='ply,glb',
-                    help='passed through to dvlt_postprocess.py (default: ply,glb)')
+    ap.add_argument('--formats', default='ply,glb,las',
+                    help='passed through to dvlt_postprocess.py (default: ply,glb,las)')
     ap.add_argument('--no-postprocess', action='store_true', default=None)
     # ── v1.5 (addendum §5)
     ap.add_argument('--profile', choices=['live', 'final'], default='final')
